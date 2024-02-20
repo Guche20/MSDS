@@ -1,0 +1,131 @@
+---
+title: "NYPD Shooting Incident Data Report"
+author: "G.U"
+date: "2024-01-21"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+```
+
+## NYPD Incident Data Analysis:
+
+Data Source: "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+Problem Statement: To showcase all the steps in the data science process, reproducibility,clear writing,                                validity of  analysis and identification of bias, using the NYPD Shooting Incident Data Report.
+
+Summary:            This is a breakdown of every shooting incident that occurred in NYC going
+                    back to 2006 through the end of 2022. Each record represents
+                    a shooting incident in NYC and includes information about the event, 
+                    the location and time of occurrence. In addition, information
+                    related to suspect and victim demographics is also included.
+
+Analysis:
+For this assignment I loaded the data from the URL provided in course resources and commenced my analysis. First few steps I performed include:
+- Convert OCCUR_DATE to Date Type
+- Convert OCCUR_TIME to Time Type
+- Counted the total number of incident rows
+
+```{r data_load}
+# Base URL for raw files
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+#reading the data
+
+nypd_data <- read.csv(url_in)
+
+#converting date and time columns to right format
+
+nypd_data$OCCUR_DATE <- mdy(nypd_data$OCCUR_DATE)
+nypd_data$OCCUR_TIME <- hms(nypd_data$OCCUR_TIME)
+
+#count total rows
+total_rows <- nrow(nypd_data)
+```
+
+## Including Plots for analysis
+
+In this section I perform various exploratory data analysis viewing the number of incidents by Year, Location (Borough), Perp Race and Distribution:
+
+```{r exploratory_analysis, echo=FALSE}
+#performing exploratory analysis to show number of incidents over time
+
+nypd_data$year <- year(nypd_data$OCCUR_DATE)
+
+ggplot(nypd_data, aes(x = year)) + 
+  geom_bar(fill = "blue") +  
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5) +  
+  labs(title = "Number of Incidents per Year", x = "Year", y = "Count")
+
+
+#Showing incidents by Borough
+
+ggplot(nypd_data, aes(x = BORO, fill = BORO)) + 
+  geom_bar() +  
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5, position = position_stack(vjust = 0.5)) +
+  labs(title = "Incidents by Location", x = "Borough", y = "Count") +
+  scale_fill_brewer(palette = "Set1") 
+
+#Showing incidents by Race
+
+ggplot(nypd_data, aes(x = PERP_RACE, fill = PERP_RACE)) + 
+  geom_bar() +  
+  geom_text(stat = 'count', aes(label = ifelse(..count.. > 0, ..count.., "")), vjust = -0.5, position = position_dodge(width = 0.9)) +
+  labs(title = "Incidents by Perp Race", x = "Perp Race", y = "Count") +
+  scale_fill_brewer(palette = "Set1", limits = levels(nypd_data$PERP_RACE)) +
+  theme(axis.text.x = element_blank())
+
+# Plotting incident locations on a map
+ggplot(nypd_data, aes(x = Longitude, y = Latitude, color = BORO)) + 
+  geom_point(alpha = 0.5) +
+  labs(title = "Map of Shooting Incidents", x = "Longitude", y = "Latitude") +
+  scale_color_brewer(palette = "Set1")
+```
+
+## Creating a Model
+
+In this section I created a model to show the relationship between number of incidents and hour of day. As can be seen in the plot, the result is cyclical meaning higher number of incidents occur at the early and later times of the day.
+
+BIAS: 
+
+Looking at the data, the existence of a RACE column creates an avenue for bias. One the exploratory plots (PERP_RACE) shows the highest incidents occurring where the PERP_RACE is BLACK. Although this is not evaluated in detail in this model section, it can be inferred that for time of day with the highest incidents, there is a high likelihood that the PERP_RACE is BLACK.
+
+```{r modelling, echo=FALSE}
+
+
+nypd_data$hour <- hour(nypd_data$OCCUR_TIME)
+
+# Transform hour to capture cyclical nature
+# Using sine and cosine transformations
+nypd_data$hour_sin <- sin(nypd_data$hour * (2 * pi / 24))
+nypd_data$hour_cos <- cos(nypd_data$hour * (2 * pi / 24))
+
+# Aggregate data by hour
+incidents_by_hour <- nypd_data %>%
+  group_by(hour) %>%
+  summarize(incidents = n(), hour_sin = mean(hour_sin), hour_cos = mean(hour_cos), .groups = 'drop')
+
+# Fit a linear model
+model <- lm(incidents ~ hour_sin + hour_cos, data = incidents_by_hour)
+
+# Summary of the model
+summary(model)
+
+# Optional: Plotting for visualization
+ggplot(incidents_by_hour, aes(x = hour, y = incidents)) +
+  geom_point() +
+  geom_line(aes(y = predict(model, incidents_by_hour)), color = "blue") +
+  labs(title = "Number of Incidents by Hour of the Day", x = "Hour", y = "Incidents")
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
